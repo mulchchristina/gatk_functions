@@ -1,0 +1,95 @@
+#!/bin/bash
+#
+#SBATCH --job-name=DoSvSubsetting
+#SBATCH --ntasks=1
+#SBATCH --get-user-env
+#SBATCH --output=DoSvSubsetting.txt
+#SBATCH --error=DoSvSubsetting.txt
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=64000
+#SBATCH --partition=exacloud
+#SBATCH --time=0-8
+
+
+set -e
+set -x
+
+export PATH=/home/exacloud/gscratch/prime-seq/bin:$PATH
+
+# Output ID: 544151> new one is 568946
+SV_VCF=/home/groups/MgapGenomicsDb/299/@files/sequenceOutputPipeline/SequenceOutput_2024-02-09_10-53-56/PBSV_CCS_CLR_merge.snpEff.ft.annotated.filtered.vcf.gz
+
+
+GATK=/home/exacloud/gscratch/prime-seq/bin/GenomeAnalysisTK4.jar
+JAVA=/home/groups/prime-seq/exacloud/java/current/bin/java
+
+MMUL10=/home/groups/prime-seq/production/Shared/@files/.referenceLibraries/128/128_Mmul_10.fasta
+
+BASENAME=PacBioSubsets
+
+runVariantsToTable() {
+        INPUT=$1
+        #TBL=`sed 's/vcf\.gz/table\.txt/g' $INPUT`
+        TBL=$(sed 's/vcf\.gz/table\.txt/g' "$INPUT")
+        
+        $JAVA -jar $GATK VariantsToTable \
+                -R $MMUL10 \
+                -V $INPUT \
+                -O $TBL \
+                -F CHROM \
+                -F POS \
+                -F END \
+                -F ID \
+                -F REF \
+                -F ALT \
+                -F SVTYPE \
+                -F AF \
+                -F NCALLED \
+                -F VAR \
+                -F ME \
+                -F SVLEN \
+                -F IMPACT \
+                -F OG \
+                -F VE \
+                -F ExHet \
+                -F FILTER
+}
+
+HighImpact=${BASENAME}.hi.vcf.gz
+if [ ! -e ${HighImpact}.done ];then
+    $JAVA -jar $GATK SelectVariants \
+        -R $MMUL10 \
+        -V $SV_VCF \
+        -O $HighImpact \
+        -select "IMPACT == 'HIGH'"
+
+    runVariantsToTable "$HighImpact"
+    
+    touch ${HighImpact}.done
+fi
+
+ExHet=${BASENAME}.exhet.vcf.gz
+if [ ! -e ${ExHet}.done ];then
+        $JAVA -jar $GATK SelectVariants \
+                -R $MMUL10 \
+                -V $SV_VCF \
+                -O $ExHet \
+                - se " ExHet < 0.05 "
+
+        runVariantsToTable $ExHet
+        
+        touch ${ExHet}.done
+fi
+
+VeryLong=${BASENAME}.svlength.vcf.gz
+if [ ! -e ${VeryLong}.done ];then
+        $JAVA -jar $GATK SelectVariants \
+                -R $MMUL10 \
+                -V $SV_VCF \
+                -O $VeryLong \
+                - se " SVLEN > 125000 "
+
+        runVariantsToTable $VeryLong
+        
+        touch ${VeryLong}.done
+fi
